@@ -2,6 +2,18 @@
 #include <stdlib.h>
 
 #define TAILLE 8
+#define QUITTER -1
+
+#define VIDE 0
+#define BLANC 'B'
+#define NOIR 'N'
+
+#define PION 'P'
+#define TOUR 'T'
+#define CAVALIER 'C'
+#define FOU 'F'
+#define DAME 'D'
+#define ROI 'R'
 
 typedef struct {
     char type;
@@ -9,14 +21,25 @@ typedef struct {
 } Piece;
 
 typedef struct {
-    char texte[8];
+    int ligne;
+    int colonne;
+} Position;
+
+typedef struct {
+    char texte[10];
 } Coup;
 
 typedef struct {
     Coup *coups;
-    int nb;
+    int nombre;
     int capacite;
 } Historique;
+
+typedef struct {
+    Piece **plateau;
+    Historique historique;
+    char joueur;
+} Partie;
 
 
 /* creation du plateau */
@@ -26,47 +49,62 @@ Piece **creerPlateau(void)
     if (plateau == NULL)
         return NULL;
 
-    for (int i = 0; i < TAILLE; i++) {
-        plateau[i] = calloc(TAILLE, sizeof(Piece));
-        if (plateau[i] == NULL)
+    for (int ligne = 0; ligne < TAILLE; ligne++) {
+        plateau[ligne] = calloc(TAILLE, sizeof(Piece));
+        if (plateau[ligne] == NULL) {
+            for (int dejaCreee = 0; dejaCreee < ligne; dejaCreee++)
+                free(plateau[dejaCreee]);
+            free(plateau);
             return NULL;
+        }
     }
     return plateau;
+}
+
+/* liberation du plateau */
+void libererPlateau(Piece **plateau)
+{
+    for (int ligne = 0; ligne < TAILLE; ligne++)
+        free(plateau[ligne]);
+    free(plateau);
+}
+
+/* pose une piece sur une case */
+void placerPiece(Piece **plateau, int ligne, int colonne, char type, char couleur)
+{
+    plateau[ligne][colonne].type = type;
+    plateau[ligne][colonne].couleur = couleur;
 }
 
 /* position de depart */
 void initialiserPlateau(Piece **plateau)
 {
-    char ordre[] = "TCFDRFCT";
+    char ordre[TAILLE] = {TOUR, CAVALIER, FOU, DAME, ROI, FOU, CAVALIER, TOUR};
 
-    for (int c = 0; c < TAILLE; c++) {
-        plateau[0][c].type = ordre[c];
-        plateau[0][c].couleur = 'B';
-        plateau[1][c].type = 'P';
-        plateau[1][c].couleur = 'B';
-
-        plateau[6][c].type = 'P';
-        plateau[6][c].couleur = 'N';
-        plateau[7][c].type = ordre[c];
-        plateau[7][c].couleur = 'N';
+    for (int colonne = 0; colonne < TAILLE; colonne++) {
+        placerPiece(plateau, 0, colonne, ordre[colonne], BLANC);
+        placerPiece(plateau, 1, colonne, PION, BLANC);
+        placerPiece(plateau, 6, colonne, PION, NOIR);
+        placerPiece(plateau, 7, colonne, ordre[colonne], NOIR);
     }
 }
 
-/* code d'une piece : PB, CN, FBB... */
-void codePiece(Piece p, int lig, int col, char code[4])
-{
-    code[0] = ' ';
-    code[1] = ' ';
-    code[2] = ' ';
-    code[3] = '\0';
 
-    if (p.type == 0)
+/* code d'une piece : PB, CN, FBB... */
+void codePiece(Piece piece, Position position, char code[4])
+{
+    code[0] = '\0';
+    if (piece.type == VIDE)
         return;
 
-    code[0] = p.type;
-    code[1] = p.couleur;
-    if (p.type == 'F')
-        code[2] = ((lig + col) % 2 == 0) ? 'N' : 'B';
+    code[0] = piece.type;
+    code[1] = piece.couleur;
+    code[2] = '\0';
+
+    if (piece.type == FOU) {
+        code[2] = ((position.ligne + position.colonne) % 2 == 0) ? NOIR : BLANC;
+        code[3] = '\0';
+    }
 }
 
 /* affichage du plateau */
@@ -77,58 +115,77 @@ void afficherPlateau(Piece **plateau)
     printf("\n    A   B   C   D   E   F   G   H\n");
     printf("  +---+---+---+---+---+---+---+---+\n");
 
-    for (int lig = TAILLE - 1; lig >= 0; lig--) {
-        printf("%d ", lig + 1);
-        for (int col = 0; col < TAILLE; col++) {
-            codePiece(plateau[lig][col], lig, col, code);
-            printf("|%s", code);
+    for (int ligne = TAILLE - 1; ligne >= 0; ligne--) {
+        printf("%d ", ligne + 1);
+        for (int colonne = 0; colonne < TAILLE; colonne++) {
+            Position position = {ligne, colonne};
+            codePiece(plateau[ligne][colonne], position, code);
+            printf("|%-3s", code);
         }
-        printf("| %d\n", lig + 1);
+        printf("| %d\n", ligne + 1);
         printf("  +---+---+---+---+---+---+---+---+\n");
     }
     printf("    A   B   C   D   E   F   G   H\n\n");
 }
 
 
-/* historique des coups */
-void initHistorique(Historique *h)
+/* creation de l'historique */
+int creerHistorique(Historique *historique)
 {
-    h->nb = 0;
-    h->capacite = 4;
-    h->coups = malloc(h->capacite * sizeof(Coup));
+    historique->nombre = 0;
+    historique->capacite = 4;
+    historique->coups = malloc(historique->capacite * sizeof(Coup));
+    return historique->coups != NULL;
 }
 
-/* ajoute un coup, ex : PB E4 */
-void ajouterCoup(Historique *h, Piece p, int lig, int col)
+/* liberation de l'historique */
+void libererHistorique(Historique *historique)
 {
-    if (h->nb == h->capacite) {
-        int nouvelleCapacite = h->capacite * 2;
-        Coup *tmp = realloc(h->coups, nouvelleCapacite * sizeof(Coup));
-        if (tmp == NULL)
-            return;
-        h->coups = tmp;
-        h->capacite = nouvelleCapacite;
-    }
+    free(historique->coups);
+    historique->coups = NULL;
+}
 
-    Coup *c = &h->coups[h->nb];
-    c->texte[0] = p.type;
-    c->texte[1] = p.couleur;
-    c->texte[2] = ' ';
-    c->texte[3] = 'A' + col;
-    c->texte[4] = '1' + lig;
-    c->texte[5] = '\0';
-    h->nb++;
+/* agrandit l'historique quand il est plein */
+int agrandirHistorique(Historique *historique)
+{
+    int nouvelleCapacite = historique->capacite * 2;
+    Coup *nouveauxCoups = realloc(historique->coups, nouvelleCapacite * sizeof(Coup));
+    if (nouveauxCoups == NULL)
+        return 0;
+
+    historique->coups = nouveauxCoups;
+    historique->capacite = nouvelleCapacite;
+    return 1;
+}
+
+/* ajoute un coup, ex : PB E4 ou PB E8=D */
+int ajouterCoup(Historique *historique, Piece piece, Position depart, Position arrivee, char promotion)
+{
+    if (historique->nombre == historique->capacite && !agrandirHistorique(historique))
+        return 0;
+
+    char code[4];
+    codePiece(piece, depart, code);
+
+    Coup *coup = &historique->coups[historique->nombre];
+    if (promotion == VIDE)
+        sprintf(coup->texte, "%s %c%c", code, 'A' + arrivee.colonne, '1' + arrivee.ligne);
+    else
+        sprintf(coup->texte, "%s %c%c=%c", code, 'A' + arrivee.colonne, '1' + arrivee.ligne, promotion);
+
+    historique->nombre++;
+    return 1;
 }
 
 /* affiche les coups joues */
-void afficherHistorique(Historique *h)
+void afficherHistorique(Historique *historique)
 {
-    printf("Coups joues : %d\n", h->nb);
-    for (int i = 0; i < h->nb; i++) {
-        if (i % 2 == 0)
-            printf("%d. ", i / 2 + 1);
-        printf("%s  ", h->coups[i].texte);
-        if (i % 2 == 1)
+    printf("Coups joues : %d\n", historique->nombre);
+    for (int numero = 0; numero < historique->nombre; numero++) {
+        if (numero % 2 == 0)
+            printf("%d. ", numero / 2 + 1);
+        printf("%s  ", historique->coups[numero].texte);
+        if (numero % 2 == 1)
             printf("\n");
     }
     printf("\n");
@@ -136,205 +193,273 @@ void afficherHistorique(Historique *h)
 
 
 /* deplacement du pion */
-int deplacementPion(Piece **plateau, int l1, int c1, int l2, int c2)
+int deplacementPion(Piece **plateau, Position depart, Position arrivee)
 {
-    int sens = (plateau[l1][c1].couleur == 'B') ? 1 : -1;
-    int depart = (plateau[l1][c1].couleur == 'B') ? 1 : 6;
+    Piece pion = plateau[depart.ligne][depart.colonne];
+    Piece cible = plateau[arrivee.ligne][arrivee.colonne];
+    int sens = (pion.couleur == BLANC) ? 1 : -1;
+    int ligneInitiale = (pion.couleur == BLANC) ? 1 : 6;
+    int avancee = arrivee.ligne - depart.ligne;
+    int ecartColonnes = abs(arrivee.colonne - depart.colonne);
 
-    if (c1 == c2 && plateau[l2][c2].type == 0) {
-        if (l2 - l1 == sens)
+    if (ecartColonnes == 0 && cible.type == VIDE) {
+        if (avancee == sens)
             return 1;
-        if (l1 == depart && l2 - l1 == 2 * sens && plateau[l1 + sens][c1].type == 0)
+        if (depart.ligne == ligneInitiale && avancee == 2 * sens
+            && plateau[depart.ligne + sens][depart.colonne].type == VIDE)
             return 1;
     }
 
-    if (abs(c2 - c1) == 1 && l2 - l1 == sens && plateau[l2][c2].type != 0)
+    if (ecartColonnes == 1 && avancee == sens && cible.type != VIDE)
         return 1;
 
     return 0;
 }
 
 /* deplacement du cavalier */
-int deplacementCavalier(int l1, int c1, int l2, int c2)
+int deplacementCavalier(Position depart, Position arrivee)
 {
-    int dl = abs(l2 - l1);
-    int dc = abs(c2 - c1);
-    return (dl == 2 && dc == 1) || (dl == 1 && dc == 2);
+    int ecartLignes = abs(arrivee.ligne - depart.ligne);
+    int ecartColonnes = abs(arrivee.colonne - depart.colonne);
+    return (ecartLignes == 2 && ecartColonnes == 1) || (ecartLignes == 1 && ecartColonnes == 2);
 }
 
 /* deplacement du fou */
-int deplacementFou(Piece **plateau, int l1, int c1, int l2, int c2)
+int deplacementFou(Piece **plateau, Position depart, Position arrivee)
 {
-    if (abs(l2 - l1) != abs(c2 - c1))
+    if (abs(arrivee.ligne - depart.ligne) != abs(arrivee.colonne - depart.colonne))
         return 0;
 
-    int pasL = (l2 > l1) ? 1 : -1;
-    int pasC = (c2 > c1) ? 1 : -1;
-    int l = l1 + pasL;
-    int c = c1 + pasC;
+    int sensLigne = (arrivee.ligne > depart.ligne) ? 1 : -1;
+    int sensColonne = (arrivee.colonne > depart.colonne) ? 1 : -1;
+    Position courante = {depart.ligne + sensLigne, depart.colonne + sensColonne};
 
-    while (l != l2) {
-        if (plateau[l][c].type != 0)
+    while (courante.ligne != arrivee.ligne) {
+        if (plateau[courante.ligne][courante.colonne].type != VIDE)
             return 0;
-        l += pasL;
-        c += pasC;
+        courante.ligne += sensLigne;
+        courante.colonne += sensColonne;
     }
     return 1;
 }
 
-/* verifie que la case contient une piece du joueur */
-int pieceDuJoueur(Piece **plateau, int lig, int col, char joueur)
-{
-    Piece *p = &plateau[lig][col];
-    return p->type != 0 && p->couleur == joueur;
-}
-
 /* verification d'un coup */
-int coupValide(Piece **plateau, int l1, int c1, int l2, int c2, char joueur)
+int coupValide(Piece **plateau, Position depart, Position arrivee)
 {
-    Piece p = plateau[l1][c1];
+    Piece piece = plateau[depart.ligne][depart.colonne];
+    Piece cible = plateau[arrivee.ligne][arrivee.colonne];
 
-    if (l1 == l2 && c1 == c2)
+    if (depart.ligne == arrivee.ligne && depart.colonne == arrivee.colonne)
         return 0;
-    if (plateau[l2][c2].type != 0 && plateau[l2][c2].couleur == joueur)
+    if (cible.type != VIDE && cible.couleur == piece.couleur)
         return 0;
 
-    switch (p.type) {
-        case 'P': return deplacementPion(plateau, l1, c1, l2, c2);
-        case 'C': return deplacementCavalier(l1, c1, l2, c2);
-        case 'F': return deplacementFou(plateau, l1, c1, l2, c2);
-        default:  return 1; /* tour, dame, roi : a coder */
+    switch (piece.type) {
+        case PION:     return deplacementPion(plateau, depart, arrivee);
+        case CAVALIER: return deplacementCavalier(depart, arrivee);
+        case FOU:      return deplacementFou(plateau, depart, arrivee);
+        default:       return 1; /* tour, dame, roi : a coder */
     }
 }
 
 /* deplace la piece sur le plateau */
-void jouerCoup(Piece **plateau, int l1, int c1, int l2, int c2)
+void deplacerPiece(Piece **plateau, Position depart, Position arrivee)
 {
-    plateau[l2][c2] = plateau[l1][c1];
-    plateau[l1][c1].type = 0;
-    plateau[l1][c1].couleur = 0;
+    plateau[arrivee.ligne][arrivee.colonne] = plateau[depart.ligne][depart.colonne];
+    placerPiece(plateau, depart.ligne, depart.colonne, VIDE, VIDE);
 }
 
 
-/* saisie d'un coup */
-char majuscule(char c)
+/* passe une lettre en majuscule */
+char majuscule(char lettre)
 {
-    if (c >= 'a' && c <= 'z')
-        return c - 'a' + 'A';
-    return c;
+    if (lettre >= 'a' && lettre <= 'z')
+        return lettre - 'a' + 'A';
+    return lettre;
 }
 
-int dansPlateau(int lig, int col)
+/* verifie qu'une case est sur le plateau */
+int dansPlateau(Position position)
 {
-    return lig >= 0 && lig < TAILLE && col >= 0 && col < TAILLE;
+    return position.ligne >= 0 && position.ligne < TAILLE
+        && position.colonne >= 0 && position.colonne < TAILLE;
 }
 
-/* lit une case, ex : E2 (retourne -1 pour quitter) */
-int lireCase(int *lig, int *col)
+/* lit une case, ex : E2 */
+int lireCase(Position *position)
 {
-    char buf[32] = {0};
+    char saisie[32] = {0};
 
-    if (fgets(buf, sizeof(buf), stdin) == NULL)
-        return -1;
-    if (buf[0] == 'q' || buf[0] == 'Q')
-        return -1;
+    if (fgets(saisie, sizeof(saisie), stdin) == NULL)
+        return QUITTER;
+    if (majuscule(saisie[0]) == 'Q')
+        return QUITTER;
 
-    *col = majuscule(buf[0]) - 'A';
-    *lig = buf[1] - '1';
-
-    return dansPlateau(*lig, *col);
+    position->colonne = majuscule(saisie[0]) - 'A';
+    position->ligne = saisie[1] - '1';
+    return dansPlateau(*position);
 }
 
 /* promotion du pion */
-void promotion(Piece **plateau, Historique *h, int lig, int col)
+char promotion(Piece **plateau, Position position)
 {
-    Piece *p = &plateau[lig][col];
+    Piece *piece = &plateau[position.ligne][position.colonne];
+    int derniereLigne = (piece->couleur == BLANC) ? TAILLE - 1 : 0;
 
-    if (p->type != 'P')
-        return;
-    if (!(p->couleur == 'B' && lig == 7) && !(p->couleur == 'N' && lig == 0))
-        return;
+    if (piece->type != PION || position.ligne != derniereLigne)
+        return VIDE;
 
-    char buf[32] = {0};
-    char choix = 0;
+    char saisie[32] = {0};
+    char choix = VIDE;
 
-    while (choix != 'D' && choix != 'T' && choix != 'F' && choix != 'C') {
+    while (choix != DAME && choix != TOUR && choix != FOU && choix != CAVALIER) {
         printf("Promotion ! Choisir D, T, F ou C : ");
-        if (fgets(buf, sizeof(buf), stdin) == NULL)
-            choix = 'D';
+        if (fgets(saisie, sizeof(saisie), stdin) == NULL)
+            choix = DAME;
         else
-            choix = majuscule(buf[0]);
+            choix = majuscule(saisie[0]);
     }
-    p->type = choix;
-
-    Coup *dernier = &h->coups[h->nb - 1];
-    dernier->texte[5] = '=';
-    dernier->texte[6] = choix;
-    dernier->texte[7] = '\0';
+    piece->type = choix;
+    return choix;
 }
 
 
-/* liberation de la memoire */
-void libererPlateau(Piece **plateau)
+/* creation de la partie */
+Partie *creerPartie(void)
 {
-    for (int i = 0; i < TAILLE; i++)
-        free(plateau[i]);
-    free(plateau);
+    Partie *partie = malloc(sizeof(Partie));
+    if (partie == NULL)
+        return NULL;
+
+    partie->plateau = creerPlateau();
+    if (partie->plateau == NULL) {
+        free(partie);
+        return NULL;
+    }
+
+    if (!creerHistorique(&partie->historique)) {
+        libererPlateau(partie->plateau);
+        free(partie);
+        return NULL;
+    }
+
+    initialiserPlateau(partie->plateau);
+    partie->joueur = BLANC;
+    return partie;
+}
+
+/* liberation de la partie */
+void libererPartie(Partie *partie)
+{
+    libererHistorique(&partie->historique);
+    libererPlateau(partie->plateau);
+    free(partie);
+}
+
+/* verifie que la case contient une piece du joueur */
+int pieceDuJoueur(Partie *partie, Position position)
+{
+    Piece piece = partie->plateau[position.ligne][position.colonne];
+    return piece.type != VIDE && piece.couleur == partie->joueur;
+}
+
+/* choix de la piece a deplacer */
+int choisirPiece(Partie *partie, Position *depart)
+{
+    printf("Au tour des %s\n", (partie->joueur == BLANC) ? "Blancs" : "Noirs");
+    printf("Entrez votre position (ex : E2, Q pour quitter) : ");
+
+    int resultat = lireCase(depart);
+    if (resultat == QUITTER)
+        return QUITTER;
+
+    if (resultat == 0 || !pieceDuJoueur(partie, *depart)) {
+        printf("Position invalide, pas de piece a vous ici\n\n");
+        return 0;
+    }
+
+    char code[4];
+    codePiece(partie->plateau[depart->ligne][depart->colonne], *depart, code);
+    printf("Piece choisie : %s\n", code);
+    return 1;
+}
+
+/* choix de la case d'arrivee */
+int choisirDestination(Partie *partie, Position depart, Position *arrivee)
+{
+    printf("Entrez la destination : ");
+
+    int resultat = lireCase(arrivee);
+    if (resultat == QUITTER)
+        return QUITTER;
+
+    if (resultat == 0 || !coupValide(partie->plateau, depart, *arrivee)) {
+        printf("Cette piece ne peut pas se deplacer ici\n\n");
+        return 0;
+    }
+    return 1;
+}
+
+/* joue le coup et passe au joueur suivant */
+int jouerCoup(Partie *partie, Position depart, Position arrivee)
+{
+    Piece piece = partie->plateau[depart.ligne][depart.colonne];
+
+    deplacerPiece(partie->plateau, depart, arrivee);
+    char choix = promotion(partie->plateau, arrivee);
+
+    if (!ajouterCoup(&partie->historique, piece, depart, arrivee, choix)) {
+        printf("Erreur memoire\n");
+        return 0;
+    }
+
+    partie->joueur = (partie->joueur == BLANC) ? NOIR : BLANC;
+    afficherPlateau(partie->plateau);
+    afficherHistorique(&partie->historique);
+    return 1;
+}
+
+/* un tour de jeu */
+int jouerTour(Partie *partie)
+{
+    Position depart;
+    Position arrivee;
+
+    int resultat = choisirPiece(partie, &depart);
+    if (resultat == QUITTER)
+        return 0;
+    if (resultat == 0)
+        return 1;
+
+    resultat = choisirDestination(partie, depart, &arrivee);
+    if (resultat == QUITTER)
+        return 0;
+    if (resultat == 0)
+        return 1;
+
+    return jouerCoup(partie, depart, arrivee);
+}
+
+/* boucle de jeu */
+void jouerPartie(Partie *partie)
+{
+    int continuer = 1;
+
+    afficherPlateau(partie->plateau);
+    while (continuer)
+        continuer = jouerTour(partie);
 }
 
 
 int main(void)
 {
-    Piece **plateau = creerPlateau();
-    if (plateau == NULL)
+    Partie *partie = creerPartie();
+    if (partie == NULL) {
+        printf("Erreur memoire\n");
         return 1;
-    initialiserPlateau(plateau);
-
-    Historique h;
-    initHistorique(&h);
-    if (h.coups == NULL)
-        return 1;
-
-    char joueur = 'B';
-    int l1, c1, l2, c2;
-    char code[4];
-
-    afficherPlateau(plateau);
-
-    while (1) {
-        printf("Au tour des %s\n", joueur == 'B' ? "Blancs" : "Noirs");
-        printf("Entrez votre position (ex : E2, Q pour quitter) : ");
-
-        int ok = lireCase(&l1, &c1);
-        if (ok == -1)
-            break;
-        if (ok == 0 || !pieceDuJoueur(plateau, l1, c1, joueur)) {
-            printf("Position invalide, pas de piece a vous ici\n\n");
-            continue;
-        }
-
-        codePiece(plateau[l1][c1], l1, c1, code);
-        printf("Piece choisie : %s\n", code);
-        printf("Entrez la destination : ");
-
-        ok = lireCase(&l2, &c2);
-        if (ok == -1)
-            break;
-        if (ok == 0 || !coupValide(plateau, l1, c1, l2, c2, joueur)) {
-            printf("Cette piece ne peut pas se deplacer ici\n\n");
-            continue;
-        }
-
-        ajouterCoup(&h, plateau[l1][c1], l2, c2);
-        jouerCoup(plateau, l1, c1, l2, c2);
-        promotion(plateau, &h, l2, c2);
-        joueur = (joueur == 'B') ? 'N' : 'B';
-
-        afficherPlateau(plateau);
-        afficherHistorique(&h);
     }
 
-    free(h.coups);
-    libererPlateau(plateau);
+    jouerPartie(partie);
+    libererPartie(partie);
     return 0;
 }
