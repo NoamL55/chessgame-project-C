@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <assert.h>
 
 #define BOARD_SIZE 8
 #define QUIT -1
@@ -21,8 +22,8 @@ typedef struct {
 } Piece;
 
 typedef struct {
+    char column;
     int row;
-    int column;
 } Position;
 
 typedef struct {
@@ -31,41 +32,26 @@ typedef struct {
 } Game;
 
 
-/* creation du plateau */
+/* creer plateau */
 Piece **createBoard(void)
 {
-    Piece **board = malloc(BOARD_SIZE * sizeof(Piece *));
-    if (board == NULL)
-        return NULL;
+    Piece **board = NULL;
+    assert((board = (Piece **)malloc(BOARD_SIZE * sizeof(Piece *))) != NULL);
 
-    for (int row = 0; row < BOARD_SIZE; row++) {
-        board[row] = calloc(BOARD_SIZE, sizeof(Piece));
-        if (board[row] == NULL) {
-            for (int created = 0; created < row; created++)
-                free(board[created]);
-            free(board);
-            return NULL;
-        }
-    }
+    for (int row = 0; row < BOARD_SIZE; row++)
+        assert((board[row] = (Piece *)calloc(BOARD_SIZE, sizeof(Piece))) != NULL);
+
     return board;
 }
 
-/* liberation du plateau */
-void freeBoard(Piece **board)
-{
-    for (int row = 0; row < BOARD_SIZE; row++)
-        free(board[row]);
-    free(board);
-}
-
-/* pose une piece sur une case */
+/* placer piece */
 void placePiece(Piece **board, int row, int column, char type, char color)
 {
     board[row][column].type = type;
     board[row][column].color = color;
 }
 
-/* position de depart */
+/* depart */
 void initBoard(Piece **board)
 {
     char order[BOARD_SIZE] = {ROOK, KNIGHT, BISHOP, QUEEN, KING, BISHOP, KNIGHT, ROOK};
@@ -79,7 +65,7 @@ void initBoard(Piece **board)
 }
 
 
-/* code d'une piece : PB, CN, FBB... */
+/* pieces: type, couleur et si fou couleur des cases */
 void pieceCode(Piece piece, Position position, char code[4])
 {
     code[0] = '\0';
@@ -96,7 +82,7 @@ void pieceCode(Piece piece, Position position, char code[4])
     }
 }
 
-/* nom d'une piece : pion, tour... */
+/* nom des piece */
 const char *pieceName(char type)
 {
     switch (type) {
@@ -110,7 +96,7 @@ const char *pieceName(char type)
     }
 }
 
-/* affichage du plateau */
+/* affichage plateau */
 void printBoard(Piece **board)
 {
     char code[4];
@@ -118,27 +104,27 @@ void printBoard(Piece **board)
     printf("\n    A   B   C   D   E   F   G   H\n");
     printf("  +---+---+---+---+---+---+---+---+\n");
 
-    for (int row = BOARD_SIZE - 1; row >= 0; row--) {
-        printf("%d ", row + 1);
-        for (int column = 0; column < BOARD_SIZE; column++) {
-            Position position = {row, column};
-            pieceCode(board[row][column], position, code);
+    for (int row = BOARD_SIZE; row >= 1; row--) {
+        printf("%d ", row);
+        for (char column = 'A'; column <= 'H'; column++) {
+            Position position = {column, row};
+            pieceCode(board[row - 1][column - 'A'], position, code);
             printf("|%-3s", code);
         }
-        printf("| %d\n", row + 1);
+        printf("| %d\n", row);
         printf("  +---+---+---+---+---+---+---+---+\n");
     }
     printf("    A   B   C   D   E   F   G   H\n\n");
 }
 
 
-/* deplacement du pion */
+/* deplacement  pion */
 int pawnMove(Piece **board, Position from, Position to)
 {
-    Piece pawn = board[from.row][from.column];
-    Piece target = board[to.row][to.column];
+    Piece pawn = board[from.row - 1][from.column - 'A'];
+    Piece target = board[to.row - 1][to.column - 'A'];
     int direction = (pawn.color == WHITE) ? 1 : -1;
-    int startRow = (pawn.color == WHITE) ? 1 : 6;
+    int startRow = (pawn.color == WHITE) ? 2 : 7;
     int rowsMoved = to.row - from.row;
     int columnGap = abs(to.column - from.column);
 
@@ -146,7 +132,7 @@ int pawnMove(Piece **board, Position from, Position to)
         if (rowsMoved == direction)
             return 1;
         if (from.row == startRow && rowsMoved == 2 * direction
-            && board[from.row + direction][from.column].type == EMPTY)
+            && board[from.row + direction - 1][from.column - 'A'].type == EMPTY)
             return 1;
     }
 
@@ -156,7 +142,7 @@ int pawnMove(Piece **board, Position from, Position to)
     return 0;
 }
 
-/* deplacement du cavalier */
+/* deplacement cavalier */
 int knightMove(Position from, Position to)
 {
     int rowGap = abs(to.row - from.row);
@@ -164,7 +150,7 @@ int knightMove(Position from, Position to)
     return (rowGap == 2 && columnGap == 1) || (rowGap == 1 && columnGap == 2);
 }
 
-/* deplacement du fou */
+/* deplacement  fou */
 int bishopMove(Piece **board, Position from, Position to)
 {
     if (abs(to.row - from.row) != abs(to.column - from.column))
@@ -172,10 +158,10 @@ int bishopMove(Piece **board, Position from, Position to)
 
     int rowStep = (to.row > from.row) ? 1 : -1;
     int columnStep = (to.column > from.column) ? 1 : -1;
-    Position current = {from.row + rowStep, from.column + columnStep};
+    Position current = {from.column + columnStep, from.row + rowStep};
 
     while (current.row != to.row) {
-        if (board[current.row][current.column].type != EMPTY)
+        if (board[current.row - 1][current.column - 'A'].type != EMPTY)
             return 0;
         current.row += rowStep;
         current.column += columnStep;
@@ -183,10 +169,10 @@ int bishopMove(Piece **board, Position from, Position to)
     return 1;
 }
 
-/* verification du deplacement selon la piece */
+/* verif deplacement selon la piece */
 int isValidMove(Piece **board, Position from, Position to)
 {
-    switch (board[from.row][from.column].type) {
+    switch (board[from.row - 1][from.column - 'A'].type) {
         case PAWN:   return pawnMove(board, from, to);
         case KNIGHT: return knightMove(from, to);
         case BISHOP: return bishopMove(board, from, to);
@@ -194,15 +180,16 @@ int isValidMove(Piece **board, Position from, Position to)
     }
 }
 
-/* deplace la piece sur le plateau */
+/* deplace la piece  */
 void movePiece(Piece **board, Position from, Position to)
 {
-    board[to.row][to.column] = board[from.row][from.column];
-    placePiece(board, from.row, from.column, EMPTY, EMPTY);
+    board[to.row - 1][to.column - 'A'] = board[from.row - 1][from.column - 'A'];
+    board[from.row - 1][from.column - 'A'].type = EMPTY;
+    board[from.row - 1][from.column - 'A'].color = EMPTY;
 }
 
 
-/* passe une lettre en majuscule */
+/*  lettre en majuscule */
 char toUpper(char letter)
 {
     if (letter >= 'a' && letter <= 'z')
@@ -210,80 +197,50 @@ char toUpper(char letter)
     return letter;
 }
 
-/* verifie qu'une case est sur le plateau */
+/* verifier case plateau */
 int isOnBoard(Position position)
 {
-    return position.row >= 0 && position.row < BOARD_SIZE
-        && position.column >= 0 && position.column < BOARD_SIZE;
+    return position.column >= 'A' && position.column <= 'H'
+        && position.row >= 1 && position.row <= BOARD_SIZE;
 }
 
-/* lit une case, ex : E2 */
-int readSquare(Position *position)
-{
-    char input[32] = {0};
-
-    if (fgets(input, sizeof(input), stdin) == NULL)
-        return QUIT;
-    if (toUpper(input[0]) == 'Q')
-        return QUIT;
-
-    position->column = toUpper(input[0]) - 'A';
-    position->row = input[1] - '1';
-    return isOnBoard(*position);
-}
-
-/* promotion du pion */
+/* promotion */
 void promotePawn(Piece **board, Position position)
 {
-    Piece *piece = &board[position.row][position.column];
-    int lastRow = (piece->color == WHITE) ? BOARD_SIZE - 1 : 0;
+    Piece *piece = &board[position.row - 1][position.column - 'A'];
+    int lastRow = (piece->color == WHITE) ? BOARD_SIZE : 1;
 
     if (piece->type != PAWN || position.row != lastRow)
         return;
 
-    char input[32] = {0};
     char choice = EMPTY;
 
     while (choice != QUEEN && choice != ROOK && choice != BISHOP && choice != KNIGHT) {
         printf("Promotion ! Choisir D, T, F ou C : ");
-        if (fgets(input, sizeof(input), stdin) == NULL)
+        if (scanf(" %c", &choice) != 1)
             choice = QUEEN;
-        else
-            choice = toUpper(input[0]);
+        choice = toUpper(choice);
     }
     piece->type = choice;
 }
 
 
-/* creation de la partie */
+/* creation */
 Game *createGame(void)
 {
-    Game *game = malloc(sizeof(Game));
-    if (game == NULL)
-        return NULL;
+    Game *game = NULL;
+    assert((game = (Game *)malloc(sizeof(Game))) != NULL);
 
     game->board = createBoard();
-    if (game->board == NULL) {
-        free(game);
-        return NULL;
-    }
-
     initBoard(game->board);
     game->player = WHITE;
     return game;
 }
 
-/* liberation de la partie */
-void freeGame(Game *game)
-{
-    freeBoard(game->board);
-    free(game);
-}
-
-/* verifie que la case contient une piece du joueur */
+/* verifier la case avec une piece du joueur */
 int isPlayerPiece(Game *game, Position position)
 {
-    Piece piece = game->board[position.row][position.column];
+    Piece piece = game->board[position.row - 1][position.column - 'A'];
     return piece.type != EMPTY && piece.color == game->player;
 }
 
@@ -293,17 +250,19 @@ int choosePiece(Game *game, Position *from)
     printf("Au tour des %s\n", (game->player == WHITE) ? "Blancs" : "Noirs");
     printf("Position initiale (ex : E2, Q pour quitter) : ");
 
-    int result = readSquare(from);
-    if (result == QUIT)
+    if (scanf(" %c", &from->column) != 1)
+        return QUIT;
+    from->column = toUpper(from->column);
+    if (from->column == 'Q')
         return QUIT;
 
-    if (result == 0 || !isPlayerPiece(game, *from)) {
+    if (scanf("%d", &from->row) != 1 || !isOnBoard(*from) || !isPlayerPiece(game, *from)) {
         printf("Position invalide, pas de piece a vous ici\n\n");
         return 0;
     }
 
     char code[4];
-    pieceCode(game->board[from->row][from->column], *from, code);
+    pieceCode(game->board[from->row - 1][from->column - 'A'], *from, code);
     printf("Piece selectionnee : %s\n", code);
     return 1;
 }
@@ -313,11 +272,13 @@ int chooseDestination(Game *game, Position from, Position *to)
 {
     printf("Position finale : ");
 
-    int result = readSquare(to);
-    if (result == QUIT)
+    if (scanf(" %c", &to->column) != 1)
+        return QUIT;
+    to->column = toUpper(to->column);
+    if (to->column == 'Q')
         return QUIT;
 
-    if (result == 0 || isPlayerPiece(game, *to)) {
+    if (scanf("%d", &to->row) != 1 || !isOnBoard(*to) || isPlayerPiece(game, *to)) {
         printf("Position impossible\n\n");
         return 0;
     }
@@ -329,16 +290,16 @@ int chooseDestination(Game *game, Position from, Position *to)
     return 1;
 }
 
-/* joue le coup et passe au joueur suivant */
+/*  passe au joueur suivant */
 void playMove(Game *game, Position from, Position to)
 {
-    Piece piece = game->board[from.row][from.column];
-    Piece target = game->board[to.row][to.column];
+    Piece piece = game->board[from.row - 1][from.column - 'A'];
+    Piece target = game->board[to.row - 1][to.column - 'A'];
 
     if (target.type != EMPTY)
-        printf("%s %c%c mange %s %c%c\n",
-               pieceName(piece.type), 'A' + from.column, '1' + from.row,
-               pieceName(target.type), 'A' + to.column, '1' + to.row);
+        printf("%s %c%d mange %s %c%d\n",
+               pieceName(piece.type), from.column, from.row,
+               pieceName(target.type), to.column, to.row);
 
     movePiece(game->board, from, to);
     promotePawn(game->board, to);
@@ -383,12 +344,17 @@ void playGame(Game *game)
 int main(void)
 {
     Game *game = createGame();
-    if (game == NULL) {
-        printf("Erreur memoire\n");
-        return 1;
-    }
 
     playGame(game);
-    freeGame(game);
+
+    for (int row = 0; row < BOARD_SIZE; row++) {
+        free(game->board[row]);
+        game->board[row] = NULL;
+    }
+    free(game->board);
+    game->board = NULL;
+    free(game);
+    game = NULL;
+
     return 0;
 }
